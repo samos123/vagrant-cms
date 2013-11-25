@@ -1,0 +1,57 @@
+---
+- hosts: vagrant
+  vars:
+    postgres_pass: test1234
+  tasks: 
+    - name: Install dependencies for CMS
+      apt: pkg={{ item }} update_cache=yes cache_valid_time=60000
+      with_items:
+          - git
+          - build-essential
+          - fpc
+          - postgresql
+          - postgresql-client
+          - gettext
+          - python2.7
+          - python-setuptools
+          - iso-codes
+          - shared-mime-info
+          - stl-manual
+          - cgroup-lite
+          - python-pip
+          - cython
+          - python-dev
+    - name: Install Gevent 1.0rc3
+      pip: name='git+git://github.com/surfly/gevent.git@1.0rc3#egg=gevent'
+      sudo: yes
+    - name: Clone latest CMS source code
+      git: repo=https://github.com/cms-dev/cms.git
+           dest=/root/cms
+    - name: Install python dependencies with pip
+      pip: requirements=/root/cms/REQUIREMENTS.txt
+      sudo: yes
+    - name: Install CMS
+      shell: chdir=/root/cms creates=/usr/local/bin/cmsContestWebServer
+             python setup.py build && python setup.py install
+      sudo: yes
+    - name: Add vagrant, root to cms group
+      user: name={{ item }} append=yes groups=cmsuser
+      with_items:
+          - vagrant
+          - root
+    - name: Create cmsuser for postgresql
+      postgresql_user: name=cmsuser password={{ postgres_pass }}
+      sudo_user: postgres
+    - name: Create database for CMS
+      postgresql_db: name=cms owner=cmsuser
+      sudo_user: postgres
+    - name: Grant special priveledges to cmsuser
+      shell: psql cms -c 'ALTER SCHEMA public OWNER TO cmsuser' && 
+             psql cms -c 'GRANT SELECT ON pg_largeobject TO cmsuser'
+      sudo_user: postgres
+    - name: Delete cms.conf in /usr/local/etc/cms.conf
+      file: path=/usr/local/etc/cms.conf state=absent
+    - name: Configure /etc/cms.conf
+      template: src=templates/cms.conf dest=/etc/cms.conf
+    - name: Initialize database
+      shell: cmsInitDB
